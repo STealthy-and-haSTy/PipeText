@@ -1,0 +1,16 @@
+[
+    {
+        "keys": ["up"], "command": "pipe_text_history",
+        "args": { "prev": true },
+        "context": [
+            { "key": "pipe_text_input" }
+        ]
+    },
+    {
+        "keys": ["down"], "command": "pipe_text_history",
+        "args": { "prev": false },
+        "context": [
+            { "key": "pipe_text_input" }
+        ]
+    },
+]
