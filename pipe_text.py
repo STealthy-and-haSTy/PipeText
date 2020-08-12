@@ -34,6 +34,7 @@ def get_execution_action(cmd, shell_cmd):
 
     # this shell_cmd/cmd logic was borrowed from Packages/Default/exec.py
     if shell_cmd:
+        cmd_text = shell_cmd
         if sys.platform == "win32":
             # Use shell=True on Windows, so shell_cmd is passed through
             # with the correct escaping
@@ -43,9 +44,17 @@ def get_execution_action(cmd, shell_cmd):
             cmd = ["/usr/bin/env", "bash", "-c", shell_cmd]
             shell = False
     else:
+        cmd_text = ' '.join(cmd)
         shell = False
 
-    return shell, cmd, do_replace
+    return shell, cmd, cmd_text, do_replace
+
+
+def set_execution_annotations(view, regions, cmd_text):
+    view.add_regions('pipe_cmd', regions,
+                     scope='comment', icon='circle',
+                     annotations=[cmd_text] * len(regions),
+                     flags=sublime.DRAW_NO_FILL)
 
 
 class PipeTextCommand(sublime_plugin.TextCommand):
@@ -64,7 +73,7 @@ class PipeTextCommand(sublime_plugin.TextCommand):
         if shell_cmd and not isinstance(shell_cmd, str):
             raise ValueError("shell_cmd must be a string")
 
-        shell, cmd, do_replace = get_execution_action(cmd, shell_cmd)
+        shell, cmd, cmd_text, do_replace = get_execution_action(cmd, shell_cmd)
 
         # if not all selections are non-empty
         if not all(self.view.sel()) and do_replace:
@@ -81,17 +90,19 @@ class PipeTextCommand(sublime_plugin.TextCommand):
         self.view.set_read_only(True)
 
         self.view.set_status('pipe_cmd', '[Executing pipe_cmd]')
+        set_execution_annotations(self.view, regions, cmd_text)
 
         thread = Thread(
             target=self.execute,
-            args=(cmd, shell, working_dir, regions, do_replace))
+            args=(cmd, shell, working_dir, cmd_text, regions, do_replace))
         thread.start()
+
 
     def finish(self):
         self.view.set_read_only(self.was_read_only)
         self.view.erase_status('pipe_cmd')
 
-    def execute(self, cmd, shell, working_dir, regions,do_replace):
+    def execute(self, cmd, shell, working_dir, cmd_text, regions, do_replace):
         failures = False
         start = time.perf_counter()
         logs = list()
@@ -113,7 +124,8 @@ class PipeTextCommand(sublime_plugin.TextCommand):
                 self.view.run_command('pipe_text_action', {
                     'region': [region.a, region.b],
                     'data': p.stdout,
-                    'do_replace': do_replace
+                    'do_replace': do_replace,
+                    'cmd_text': cmd_text
                     })
             else:
                 failures = True
@@ -129,11 +141,16 @@ class PipeTextCommand(sublime_plugin.TextCommand):
 
 
 class PipeTextActionCommand(sublime_plugin.TextCommand):
-    def run(self, edit, region, data, do_replace):
+    def run(self, edit, cmd_text, region, data, do_replace):
+        region = sublime.Region(region[0], region[1])
+
+        regions = self.view.get_regions('pipe_cmd')
+        regions.remove(region)
+        set_execution_annotations(self.view, regions, cmd_text)
+
         was_read_only = self.view.is_read_only()
         self.view.set_read_only(False)
 
-        region = sublime.Region(region[0], region[1])
         if do_replace:
             self.view.replace(edit, region, data)
         else:
