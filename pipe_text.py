@@ -1,6 +1,7 @@
 import sublime
 import sublime_plugin
 from subprocess import run, PIPE
+from threading import Thread
 import time
 from datetime import datetime
 import os
@@ -76,6 +77,12 @@ class PipeTextCommand(sublime_plugin.TextCommand):
         if not working_dir and self.view.file_name():
             working_dir = os.path.dirname(self.view.file_name())
 
+        thread = Thread(
+            target=self.execute,
+            args=(cmd, shell, working_dir, regions, do_replace))
+        thread.start()
+
+    def execute(self, cmd, shell, working_dir, regions,do_replace):
         failures = False
         start = time.perf_counter()
         logs = list()
@@ -98,10 +105,11 @@ class PipeTextCommand(sublime_plugin.TextCommand):
             log(f'command "{cmd!r}" executed with return code {p.returncode} in {time_elapsed * 1000:.3f}ms')
 
             if p.returncode == 0:
-                if do_replace:
-                    self.view.replace(edit, region, p.stdout)
-                else:
-                    self.view.insert(edit, region.b, p.stdout)
+                self.view.run_command('pipe_text_action', {
+                    'region': [region.a, region.b],
+                    'data': p.stdout,
+                    'do_replace': do_replace
+                    })
             else:
                 failures = True
                 log(p.stderr.rstrip())
@@ -111,6 +119,16 @@ class PipeTextCommand(sublime_plugin.TextCommand):
             sublime.error_message('\n'.join(logs)) # TODO: don't include the datetimes here?
         else:
             sublime.status_message(f'text piped and replaced successfully in {total_elapsed * 1000:.3f}ms')
+
+
+class PipeTextActionCommand(sublime_plugin.TextCommand):
+    def run(self, edit, region, data, do_replace):
+        region = sublime.Region(region[0], region[1])
+        if do_replace:
+            self.view.replace(edit, region, data)
+        else:
+            self.view.insert(edit, region.b, data)
+
 
 # example for pretty printing XML using xmllint:
 # TODO: option for no xml prolog when working with selections? https://stackoverflow.com/q/37118327/4473405
