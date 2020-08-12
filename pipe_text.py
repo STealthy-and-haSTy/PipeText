@@ -77,10 +77,19 @@ class PipeTextCommand(sublime_plugin.TextCommand):
         if not working_dir and self.view.file_name():
             working_dir = os.path.dirname(self.view.file_name())
 
+        self.was_read_only = self.view.is_read_only()
+        self.view.set_read_only(True)
+
+        self.view.set_status('pipe_cmd', '[Executing pipe_cmd]')
+
         thread = Thread(
             target=self.execute,
             args=(cmd, shell, working_dir, regions, do_replace))
         thread.start()
+
+    def finish(self):
+        self.view.set_read_only(self.was_read_only)
+        self.view.erase_status('pipe_cmd')
 
     def execute(self, cmd, shell, working_dir, regions,do_replace):
         failures = False
@@ -91,10 +100,6 @@ class PipeTextCommand(sublime_plugin.TextCommand):
             log_text = str(datetime.now()) + ' ' + message
             logs.append(log_text)
             print(log_text)
-
-        # TODO: the commands could take a while to execute, and it may be an idea to not block the ui
-        # - so maybe just mark the buffer as read only until they complete and do the replacements async
-        # maybe even with some phantoms or annotations near the selections to tell the user what is going on
 
         for region in reversed(regions):
             text = self.view.substr(region)
@@ -120,14 +125,21 @@ class PipeTextCommand(sublime_plugin.TextCommand):
         else:
             sublime.status_message(f'text piped and replaced successfully in {total_elapsed * 1000:.3f}ms')
 
+        sublime.set_timeout(self.finish, 0)
+
 
 class PipeTextActionCommand(sublime_plugin.TextCommand):
     def run(self, edit, region, data, do_replace):
+        was_read_only = self.view.is_read_only()
+        self.view.set_read_only(False)
+
         region = sublime.Region(region[0], region[1])
         if do_replace:
             self.view.replace(edit, region, data)
         else:
             self.view.insert(edit, region.b, data)
+
+        self.view.set_read_only(was_read_only)
 
 
 # example for pretty printing XML using xmllint:
