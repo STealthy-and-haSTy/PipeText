@@ -17,6 +17,36 @@ def execute_with_stdin(cmd, shell, cwd, text):
     return (p, after - before)
 
 
+def get_execution_action(cmd, shell_cmd):
+    """ Determine what command to execute and whether or not the result should
+        replace the selection or insert after it.
+    """
+
+    # Check to see if the command says to execute in place or not
+    do_replace = True
+    if shell_cmd and shell_cmd[0] == '!':
+        shell_cmd = shell_cmd[1:]
+        do_replace = False
+    elif cmd and cmd[0][0] == '!':
+        cmd[0] = cmd[0][1:]
+        do_replace = False
+
+    # this shell_cmd/cmd logic was borrowed from Packages/Default/exec.py
+    if shell_cmd:
+        if sys.platform == "win32":
+            # Use shell=True on Windows, so shell_cmd is passed through
+            # with the correct escaping
+            cmd = shell_cmd
+            shell = True
+        else:
+            cmd = ["/usr/bin/env", "bash", "-c", shell_cmd]
+            shell = False
+    else:
+        shell = False
+
+    return shell, cmd, do_replace
+
+
 class PipeTextCommand(sublime_plugin.TextCommand):
     """Pipe text from ST - the selections, if any, otherwise the entire buffer contents
        - to the specified shell command.
@@ -27,32 +57,21 @@ class PipeTextCommand(sublime_plugin.TextCommand):
        automatically opted-in.)
     """
     def run(self, edit, cmd=None, shell_cmd=None, working_dir=None):
-        # if not all selections are non-empty
-        if not all(self.view.sel()):
-            # use the entire buffer instead of the selections
-            regions = [sublime.Region(0, self.view.size())]
-        else:
-            # use the user's selections
-            regions = self.view.sel()
-
         if not shell_cmd and not cmd:
             raise ValueError("shell_cmd or cmd is required")
 
         if shell_cmd and not isinstance(shell_cmd, str):
             raise ValueError("shell_cmd must be a string")
 
-        # this shell_cmd/cmd logic was borrowed from Packages/Default/exec.py
-        if shell_cmd:
-            if sys.platform == "win32":
-                # Use shell=True on Windows, so shell_cmd is passed through
-                # with the correct escaping
-                cmd = shell_cmd
-                shell = True
-            else:
-                cmd = ["/usr/bin/env", "bash", "-c", shell_cmd]
-                shell = False
+        shell, cmd, do_replace = get_execution_action(cmd, shell_cmd)
+
+        # if not all selections are non-empty
+        if not all(self.view.sel()) and do_replace:
+            # use the entire buffer instead of the selections
+            regions = [sublime.Region(0, self.view.size())]
         else:
-            shell = False
+            # use the user's selections
+            regions = self.view.sel()
 
         if not working_dir and self.view.file_name():
             working_dir = os.path.dirname(self.view.file_name())
@@ -79,7 +98,10 @@ class PipeTextCommand(sublime_plugin.TextCommand):
             log(f'command "{cmd!r}" executed with return code {p.returncode} in {time_elapsed * 1000:.3f}ms')
 
             if p.returncode == 0:
-                self.view.replace(edit, region, p.stdout)
+                if do_replace:
+                    self.view.replace(edit, region, p.stdout)
+                else:
+                    self.view.insert(edit, region.b, p.stdout)
             else:
                 failures = True
                 log(p.stderr.rstrip())
