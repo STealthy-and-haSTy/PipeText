@@ -3,15 +3,16 @@ import sublime_plugin
 from subprocess import run, PIPE
 import time
 from datetime import datetime
+import os
 import sys
 
 
-def execute_with_stdin(cmd, shell, text):
+def execute_with_stdin(cmd, shell, cwd, text):
     before = time.perf_counter()
     # https://docs.python.org/3/library/subprocess.html#subprocess.run - new in version 3.5
     # therefore, this python file should be in your User package (which defaults to Python 3.8)
     # and you need to be using ST build >= 4050
-    p = run(cmd, shell=shell, capture_output=True, input=text, encoding='utf-8')
+    p = run(cmd, shell=shell, cwd=cwd, capture_output=True, input=text, encoding='utf-8')
     after = time.perf_counter()
     return (p, after - before)
 
@@ -25,7 +26,7 @@ class PipeTextCommand(sublime_plugin.TextCommand):
        package to have opted in to the Python 3.8 plugin host. (The User package is
        automatically opted-in.)
     """
-    def run(self, edit, cmd=None, shell_cmd=None):
+    def run(self, edit, cmd=None, shell_cmd=None, working_dir=None):
         # if not all selections are non-empty
         if not all(self.view.sel()):
             # use the entire buffer instead of the selections
@@ -53,6 +54,9 @@ class PipeTextCommand(sublime_plugin.TextCommand):
         else:
             shell = False
 
+        if not working_dir and self.view.file_name():
+            working_dir = os.path.dirname(self.view.file_name())
+
         failures = False
         start = time.perf_counter()
         logs = list()
@@ -69,7 +73,7 @@ class PipeTextCommand(sublime_plugin.TextCommand):
         for region in reversed(regions):
             text = self.view.substr(region)
 
-            p, time_elapsed = execute_with_stdin(cmd, shell, text)
+            p, time_elapsed = execute_with_stdin(cmd, shell, working_dir, text)
 
             # TODO: also report the selection index?
             log(f'command "{cmd!r}" executed with return code {p.returncode} in {time_elapsed * 1000:.3f}ms')

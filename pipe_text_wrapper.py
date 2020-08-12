@@ -34,17 +34,21 @@ _pipe_cmd_history = PipeCommandHistory()
 
 
 class PipeTextWrapperCommand(sublime_plugin.WindowCommand):
-    def run(self):
+    def run(self, working_dir=None):
         last_cmd = '' if _pipe_cmd_history.empty() else _pipe_cmd_history.get()[0]
         panel = self.window.show_input_panel('shell_cmd', last_cmd,
-                                             self.execute, None, None)
+                                             lambda shell_cmd: self.execute(shell_cmd, working_dir),
+                                             None, None)
         panel.settings().set('_pipe_cmd_input', True)
         panel.settings().set('_pipe_cmd_idx', 0)
         panel.run_command('select_all')
 
-    def execute(self, shell_cmd):
+    def execute(self, shell_cmd, working_dir):
         _pipe_cmd_history.push(shell_cmd)
-        self.window.run_command('pipe_text', {'shell_cmd': shell_cmd})
+        self.window.run_command('pipe_text', {
+            'shell_cmd': shell_cmd,
+            'working_dir': working_dir
+        })
 
 
 ### ---------------------------------------------------------------------------
